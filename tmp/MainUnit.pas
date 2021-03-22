@@ -39,6 +39,8 @@ type
     edCovers: TEdit;
     pnSQL: TPanel;
     Panel1: TPanel;
+    btnSql: TSpeedButton;
+    btnSQL2Excel: TSpeedButton;
     cbTemplate: TComboBox;
     sgTemplate: TStringGrid;
     conMain: TADOConnection;
@@ -48,14 +50,13 @@ type
     btnCovers: TSpeedButton;
     btnBlocks: TSpeedButton;
     tsLog: TTabSheet;
-    GroupBox2: TGroupBox;
-    mmLog: TMemo;
     GroupBox1: TGroupBox;
     mmErrors: TMemo;
-    sbMain: TStatusBar;
+    GroupBox2: TGroupBox;
+    mmLog: TMemo;
     procedure MakeError(sText, sTitle: String);
     function  UpdateCfgFile(sFile, sCopies: String): Boolean;
-    function  PutCoverToQueue(sFile: WideString; sCopies, sDup: String): Integer;
+    function  PutCoverToQueue(sFile: WideString; sCopies: String): Integer;
     procedure btnCoversClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: Word;
@@ -79,9 +80,8 @@ type
   end;
 
 var
-  frmMain:  TfrmMain;
-  sLogFile: String;
-  bStopIt:  Boolean = false;
+  frmMain: TfrmMain;
+  sLogFile:     String;
 
 const
   iOffset = 32;
@@ -218,23 +218,21 @@ end;
 
 function SearchFile(sFile: WideString): WideString;
 var
-  fdData: TWIN32FindDataW;
-  hFd:    THandle;
+  fdData: TSearchRec;
 begin
 Result := '';
 if (sFile[Length(sFile)] = '\') then
   sFile[Length(sFile)] := #0;
-hFd := Windows.FindFirstFileW(PWideChar(sFile), fdData);
-if (hFd <> INVALID_HANDLE_VALUE) then
-  Result := fdData.cFileName;
-if hFd <> 0 then Windows.FindClose(hFd);
+if (FindFirst(sFile, faAnyFile, fdData) = 0) then
+    Result := fdData.Name;
+FindClose(fdData);
 end;
 
 procedure TfrmMain.MakeError(sText, sTitle: String);
 begin
 if (sTitle = '') then sTitle := 'Ошибка';
-MessageBox(Application.Handle, PAnsiChar(sText),
-          PAnsiChar(sTitle), MB_OK + MB_ICONHAND);
+MessageBox(Application.Handle, PWideChar(sText),
+          PWideChar(sTitle), MB_OK + MB_ICONHAND);
 end;
 
 function TfrmMain.GetParam(sParam: String; iIdx: Integer): String;
@@ -319,7 +317,7 @@ begin
                  '" KeyDisplayValue="РљРѕРїРёРё" LocDisplayValue="1"/>';
   try
     slCfg.SaveToFile(sFile);
-    WriteLog('Сохранены настройки для файла ' + sFile);
+    WriteLog('Сохранены настройки для файла ' + sFile + '. Ждем принтер...');
     Result := True;
   except
   end;
@@ -327,21 +325,19 @@ end;
 slCfg.Free;
 end;
 
-function  TfrmMain.PutCoverToQueue(sFile: WideString; sCopies, sDup: String): Integer;
+function TfrmMain.PutCoverToQueue(sFile: WideString; sCopies: String): Integer;
 var
   sCfg:     String;
-  sPath:    String;
   sOutFile: WideString;
 begin
 Result := -1;
-sPath := sDup + '_na_list';
-sCfg := edCovers.Text + sPath + '\[_EFI_HotFolder_]\Folder.cfg';
+sCfg := edCovers.Text + '2_na_list\[_EFI_HotFolder_]\Folder.cfg';
 if (not UpdateCfgFile(sCfg, sCopies)) then begin
   WriteLog('Ошибка сохранения настроек для ' + sFile);
   Exit;
 end;
 sOutFile := ExtractFileName(sFile);
-sOutFile := edCovers.Text + sPath + '\' + sOutFile;
+sOutFile := edCovers.Text + '2_na_list\' + sOutFile;
 if (not CopyFileW(PWideChar(sFile), PWideChar(sOutFile), True)) then
   WriteLog('Ошибка копирования файла ' + sFile)
 else
@@ -349,46 +345,33 @@ begin
   while FileExists(sOutFile) do
   begin
     Application.ProcessMessages;
-    sbMain.Panels[2].Text := 'Ждем принтер...';
     Sleep(500);
-    if bStopIt then Break;
   end;
   Result := 1;
-  sbMain.Panels[2].Text := '';
 end;
 end;
 
 procedure TfrmMain.btnCoversClick(Sender: TObject);
-label
-  StopIt;
 var
-  sFile:            WideString;
-  sDir:             WideString;
-  sPdfFile:         WideString;
-  sTemplate:        String;
-  sIsbn:            String;
-  sNumberOfCopies:  String;
-  sBookFormat:      String;
-  sImposition:      String;
-  i:                Integer;
-  iFound:           Integer;
-  tmStartTime:      TTime;
+  sFile:      WideString;
+  sDir:       WideString;
+  sPdfFile:   WideString;
+  sTemplate:  String;
+  sIsbn:      String;
+  sCopies:    String;
+  i:          Integer;
+  iFound:     Integer;
 begin
-if ((not bStopIt) and (btnCovers.Caption = 'Прервать')) then goto StopIt;
 sFile := edOrders.Text;
 if SearchFile(sFile) <> '' then
   dlgOpenPrn.InitialDir := edOrders.Text;
 if (not dlgOpenPrn.Execute) then Exit;
-btnBlocks.Enabled := False;
-bStopIt := False;
-btnCovers.Caption := 'Прервать';
-tmStartTime := Now;
 iFound := 0;
 sFile := ExtractFileName(dlgOpenPrn.FileName);
 for i := 0 to cbTemplate.Items.Count - 1 do
 begin
   sTemplate := Copy(cbTemplate.Items[i], 1, Length(cbTemplate.Items[i]) - 5);
-  if (Pos(sTemplate, sFile) > 0) then
+  if (Pos(WideString(sTemplate), sFile) > 0) then
     if (LoadTemplate(ExtractFilePath(ParamStr(0)) +
         'templates\' + cbTemplate.Items[i]) = 0) then
     begin
@@ -406,7 +389,7 @@ begin
       sFile := Copy(sFile, 1, LastDelimiter('.', sFile) - 1);
       sDir := edBooks.Text;
       sIsbn := GetParam('Isbn', i);
-      sPdfFile := SearchFile(sDir + '*' + Trim(sIsbn) + '*.*');
+      sPdfFile := SearchFile(sDir + '*' + sIsbn + '*.*');
       if (sPdfFile <> '') then
       begin
         sDir := sDir + sPdfFile;
@@ -415,22 +398,15 @@ begin
         sPdfFile := SearchFile(sDir + '*' + Trim(sIsbn) + '-cover.pdf');
         if (sPdfFile <> '') then
         begin
-          sBookFormat := GetParam('BookFormat', i);
-          sFile := edCovers.Text + sFile + '_' + sBookFormat +
+          sFile := edCovers.Text + sFile + '_' + GetParam('BookFormat', i) +
                   '_' + sPdfFile;
-          sNumberOfCopies := GetParam('NumberOfCopies', i);
-          //Если формат <> А5, то пропускаем
-          if ((Trim(sBookFormat) <> 'A5') and (Trim(sBookFormat) <> 'А5'))then
-            WriteLog('Пропускаем файл, формат ' + sBookFormat + ': ' + sDir + sPdfFile)
-          //Если копии = 0 то пропускаем
-          else if (Trim(sNumberOfCopies) = '0') then
+          sCopies := GetParam('NumberOfCopies', i);
+          if (sCopies = '0') then
             WriteLog('Пропускаем файл, тираж 0: ' + sDir + sPdfFile)
           else begin
-            sImposition := GetParam('Imposition', i);
-            WriteLog('Копируем файл, тираж ' + sNumberOfCopies +
-                     ': Обложек на лист: ' + sImposition + ':' +
+            WriteLog('Копируем файл, тираж ' + sCopies + ': ' +
                      sDir + sPdfFile + ' в ' + sFile);
-            PutCoverToQueue(sDir + sPdfFile, sNumberOfCopies, sImposition);
+            PutCoverToQueue(sDir + sPdfFile, sCopies);
           end;
         end
         else
@@ -444,50 +420,34 @@ begin
         WriteLog('Нет директории макетов ' + sIsbn);
         mmErrors.Lines.Add(sIsbn + ' - нет директории макетов');
       end;
-      sbMain.Panels[1].Text := 'Выполнено ' + IntToStr(Round(i/sgOrder.RowCount * 100)) + '%';
-      sbMain.Panels[0].Text := FormatDateTime('hh:nn:ss ', Now - tmStartTime);
       Application.ProcessMessages;
-      if bStopIt then Break;
     end;
 end
 else
   MakeError('Не найден шаблон загрузки для файла ' + dlgOpenPrn.FileName, '');
-StopIt:
-sbMain.Panels[1].Text := 'Завершено!';
-btnBlocks.Enabled := True;
-bStopIt := True;
-btnCovers.Caption := '&Обложки';
 end;
 
 procedure TfrmMain.btnBlocksClick(Sender: TObject);
-label
-  StopIt;
 var
-  sFile:            WideString;
-  sDir:             WideString;
-  sPdfFile:         WideString;
-  sTemplate:        String;
-  sIsbn:            String;
-  sNNumberOfCopies: String;
-  i:                Integer;
-  iFound:           Integer;
-  tmStartTime:      TTime;
+  sFile:      WideString;
+  sDir:       WideString;
+  sPdfFile:   WideString;
+  sTemplate:  String;
+  sIsbn:      String;
+  sCopies:    String;
+  i:          Integer;
+  iFound:     Integer;
 begin
-if ((not bStopIt) and (btnBlocks.Caption = 'Прервать')) then goto StopIt;
-tmStartTime := Now;
 sFile := edOrders.Text;
 if SearchFile(sFile) <> '' then
   dlgOpenPrn.InitialDir := edOrders.Text;
 if (not dlgOpenPrn.Execute) then Exit;
-btnCovers.Enabled := False;
-bStopIt := False;
-btnBlocks.Caption := 'Прервать';
 iFound := 0;
 sFile := ExtractFileName(dlgOpenPrn.FileName);
 for i := 0 to cbTemplate.Items.Count - 1 do
 begin
   sTemplate := Copy(cbTemplate.Items[i], 1, Length(cbTemplate.Items[i]) - 5);
-  if (Pos(sTemplate, sFile) > 0) then
+  if (Pos(WideString(sTemplate), sFile) > 0) then
     if (LoadTemplate(ExtractFilePath(ParamStr(0)) +
         'templates\' + cbTemplate.Items[i]) = 0) then
     begin
@@ -505,7 +465,7 @@ begin
       sFile := Copy(sFile, 1, LastDelimiter('.', sFile) - 1);
       sDir := edBooks.Text;
       sIsbn := GetParam('Isbn', i);
-      sPdfFile := SearchFile(sDir + '*' + Trim(sIsbn) + '*.*');
+      sPdfFile := SearchFile(sDir + '*' + sIsbn + '*.*');
       if (sPdfFile <> '') then
       begin
         sDir := sDir + sPdfFile;
@@ -516,14 +476,13 @@ begin
         begin
           sFile := edBlocks.Text + sFile + '_' + GetParam('BookFormat', i) +
                   '_' + sPdfFile;
-          sNNumberOfCopies := GetParam('NumberOfCopies', i);
-          if (sNNumberOfCopies = '0') then
+          if (sCopies = '0') then
             WriteLog('Пропускаем файл, тираж 0: ' + sDir + sPdfFile)
           else begin
-            WriteLog('Копируем файл, тираж ' + sNNumberOfCopies + ': ' +
+            WriteLog('Копируем файл, тираж ' + sCopies + ': ' +
                      sDir + sPdfFile + ' в ' + sFile);
             if (not CopyFileW(PWideChar(sDir + sPdfFile), PWideChar(sFile), True)) then
-              WriteLog('Ошибка копирования файла ' + sFile)
+              WriteLog('Ошибка копирования файла ' + sFile);
           end;
         end
         else
@@ -537,19 +496,10 @@ begin
         WriteLog('Нет директории макетов ' + sIsbn);
         mmErrors.Lines.Add(sIsbn + ' - нет директории макетов');
       end;
-      sbMain.Panels[1].Text := 'Выполнено ' + IntToStr(Round(i/sgOrder.RowCount * 100)) + '%';
-      sbMain.Panels[0].Text := FormatDateTime('hh:nn:ss ', Now - tmStartTime);
-      Application.ProcessMessages;
-      if bStopIt then Break;
     end;
 end
 else
   MakeError('Не найден шаблон загрузки для файла ' + dlgOpenPrn.FileName, '');
-StopIt:
-sbMain.Panels[1].Text := 'Завершено!';
-btnCovers.Enabled := True;
-bStopIt := True;
-btnBlocks.Caption := '&Блоки';
 end;
 
 procedure TfrmMain.CorrectPaths;
@@ -598,7 +548,6 @@ conMain.ConnectionString := 'Provider=MSDASQL.1;Persist Security Info=False;' +
 cbTemplateDropDown(nil);
 conMain.Connected := True;
 CorrectPaths;
-pcMain.ActivePage := tsPrint;
 end;
 
 procedure TfrmMain.FormKeyDown(Sender: TObject; var Key: Word;
