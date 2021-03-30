@@ -55,7 +55,9 @@ type
     sbMain: TStatusBar;
     procedure MakeError(sText, sTitle: String);
     function  UpdateCfgFile(sFile, sCopies: String): Boolean;
-    function  PutCoverToQueue(sFile: WideString; sCopies, sDup: String): Integer;
+//    function  PutCoverToQueue(sFile: WideString; sCopies, sDup: String): Integer;
+//    function  PutBlockToQueue(sFile: WideString; sCopies, sDup: String): Integer;
+    function  PutFileToQueue(sFile: WideString; sCopies, sDup: String; bCover: Boolean): Integer;
     procedure btnCoversClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: Word;
@@ -327,7 +329,41 @@ end;
 slCfg.Free;
 end;
 
-function  TfrmMain.PutCoverToQueue(sFile: WideString; sCopies, sDup: String): Integer;
+function  TfrmMain.PutFileToQueue(sFile: WideString;
+          sCopies, sDup: String; bCover: Boolean): Integer;
+var
+  sCfg:     String;
+  sPath:    String;
+  sOutFile: WideString;
+begin
+Result := -1;
+sPath := sDup + '_na_list';
+sCfg := edCovers.Text + sPath + '\[_EFI_HotFolder_]\Folder.cfg';
+if bCover then begin
+  if (not UpdateCfgFile(sCfg, sCopies)) then begin
+    WriteLog('Ошибка сохранения настроек для ' + sFile);
+    Exit;
+  end;
+end;
+sOutFile := ExtractFileName(sFile);
+sOutFile := edCovers.Text + sPath + '\' + sOutFile;
+if (not CopyFileW(PWideChar(sFile), PWideChar(sOutFile), True)) then
+  WriteLog('Ошибка копирования файла ' + sFile)
+else
+begin
+  while FileExists(sOutFile) do
+  begin
+    Application.ProcessMessages;
+    sbMain.Panels[2].Text := 'Ждем принтер...';
+    Sleep(100);
+    if bStopIt then Break;
+  end;
+  Result := 1;
+  sbMain.Panels[2].Text := '';
+end;
+end;
+
+{function  TfrmMain.PutCoverToQueue(sFile: WideString; sCopies, sDup: String): Integer;
 var
   sCfg:     String;
   sPath:    String;
@@ -357,6 +393,30 @@ begin
   sbMain.Panels[2].Text := '';
 end;
 end;
+
+function  TfrmMain.PutBlockToQueue(sFile: WideString; sCopies, sDup: String): Integer;
+var
+  sPath:    String;
+  sOutFile: WideString;
+begin
+Result := -1;
+sOutFile := ExtractFileName(sFile);
+sOutFile := edBlocks.Text + sPath + '\' + sOutFile;
+if (not CopyFileW(PWideChar(sFile), PWideChar(sOutFile), True)) then
+  WriteLog('Ошибка копирования файла ' + sFile)
+else
+begin
+  while FileExists(sOutFile) do
+  begin
+    Application.ProcessMessages;
+    sbMain.Panels[2].Text := 'Ждем принтер...';
+    Sleep(500);
+    if bStopIt then Break;
+  end;
+  Result := 1;
+  sbMain.Panels[2].Text := '';
+end;
+end;}
 
 procedure TfrmMain.btnCoversClick(Sender: TObject);
 label
@@ -420,23 +480,24 @@ begin
                   '_' + sPdfFile;
           sNumberOfCopies := GetParam('NumberOfCopies', i);
           //Если формат <> А5, то пропускаем
-          if ((Trim(sBookFormat) <> 'A5') and (Trim(sBookFormat) <> 'А5'))then
-            WriteLog('Пропускаем файл, формат ' + sBookFormat + ': ' + sDir + sPdfFile)
+//          if ((Trim(sBookFormat) <> 'A5') and (Trim(sBookFormat) <> 'А5'))then
+//            WriteLog('Пропускаем файл, формат ' + sBookFormat + ': ' + sDir + sPdfFile)
           //Если копии = 0 то пропускаем
-          else if (Trim(sNumberOfCopies) = '0') then
+          if (Trim(sNumberOfCopies) = '0') then
             WriteLog('Пропускаем файл, тираж 0: ' + sDir + sPdfFile)
           else begin
             sImposition := GetParam('Imposition', i);
             WriteLog('Копируем файл, тираж ' + sNumberOfCopies +
                      ': Обложек на лист: ' + sImposition + ':' +
                      sDir + sPdfFile + ' в ' + sFile);
-            PutCoverToQueue(sDir + sPdfFile, sNumberOfCopies, sImposition);
+            PutFileToQueue(sDir + sPdfFile, sNumberOfCopies, sImposition, True);
           end;
         end
         else
         begin
           WriteLog('Не удалось найти файл ' + sIsbn);
-          mmErrors.Lines.Add(sIsbn + ' - не удалось найти файл');
+          mmErrors.Lines.Add(sIsbn + ', ' + GetParam('Name', i) + ', ' +
+              ' - не удалось найти файл');
         end;
       end
       else
@@ -468,7 +529,10 @@ var
   sPdfFile:         WideString;
   sTemplate:        String;
   sIsbn:            String;
-  sNNumberOfCopies: String;
+  sNumberOfCopies:  String;
+  sBookFormat:      String;
+  sBookMount:       String;
+  sImposition:      String;
   i:                Integer;
   iFound:           Integer;
   tmStartTime:      TTime;
@@ -514,22 +578,33 @@ begin
         sPdfFile := SearchFile(sDir + '*' + Trim(sIsbn) + '.pdf');
         if (sPdfFile <> '') then
         begin
-          sFile := edBlocks.Text + sFile + '_' + GetParam('BookFormat', i) +
+          sBookFormat := GetParam('BookFormat', i);
+          sImposition := GetParam('Imposition', i);
+          sNumberOfCopies := GetParam('NumberOfCopies', i);
+          sBookMount := GetParam('BookMount', i);
+          sFile := edBlocks.Text + sFile + '_' + sBookFormat +
                   '_' + sPdfFile;
-          sNNumberOfCopies := GetParam('NumberOfCopies', i);
-          if (sNNumberOfCopies = '0') then
+          //Если формат <> А5, то пропускаем
+          if ((Trim(sBookFormat) <> 'A5') and (Trim(sBookFormat) <> 'А5'))then
+            WriteLog('Пропускаем файл, формат ' + sBookFormat + ': ' + sDir + sPdfFile)
+          //Если копии = 0 то пропускаем
+          else if (Trim(sNumberOfCopies) = '0') then
             WriteLog('Пропускаем файл, тираж 0: ' + sDir + sPdfFile)
+          //Если скрепка то пропускаем
+          else if (Trim(sBookMount) = 'скр') then
+            WriteLog('Пропускаем файл, скр: ' + sDir + sPdfFile)
           else begin
-            WriteLog('Копируем файл, тираж ' + sNNumberOfCopies + ': ' +
+            WriteLog('Копируем файл, тираж ' + sNumberOfCopies +
+                     ': Обложек на лист: ' + sImposition + ':' +
                      sDir + sPdfFile + ' в ' + sFile);
-            if (not CopyFileW(PWideChar(sDir + sPdfFile), PWideChar(sFile), True)) then
-              WriteLog('Ошибка копирования файла ' + sFile)
+            PutFileToQueue(sDir + sPdfFile, sNumberOfCopies, sImposition, False);
           end;
         end
         else
         begin
           WriteLog('Не удалось найти файл ' + sIsbn);
-          mmErrors.Lines.Add(sIsbn + ' - не удалось найти файл');
+          mmErrors.Lines.Add(sIsbn + ', ' + GetParam('Name', i) + ', ' +
+              ' - не удалось найти файл');
         end;
       end
       else
