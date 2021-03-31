@@ -55,8 +55,6 @@ type
     sbMain: TStatusBar;
     procedure MakeError(sText, sTitle: String);
     function  UpdateCfgFile(sFile, sCopies: String): Boolean;
-//    function  PutCoverToQueue(sFile: WideString; sCopies, sDup: String): Integer;
-//    function  PutBlockToQueue(sFile: WideString; sCopies, sDup: String): Integer;
     function  PutFileToQueue(sFile: WideString; sCopies, sDup: String; bCover: Boolean): Integer;
     procedure btnCoversClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
@@ -72,6 +70,8 @@ type
     function  LoadOrder(sFileName: String): Integer;
     function  LoadTemplate(sFile: String): Integer;
     function  GetParam(sParam: String; iIdx: Integer): String;
+    function GetColumn(sParam: String): Integer;
+    procedure SortData;
     procedure CorrectPaths;
     procedure btnBlocksClick(Sender: TObject);
   private
@@ -252,49 +252,123 @@ for i := 0 to iMaxRow do
   end;
 end;
 
+function TfrmMain.GetColumn(sParam: String): Integer;
+var
+  i: Integer;
+begin
+Result := 0;
+for i := 0 to iMaxRow do
+  if (sgTemplate.Cells[0, i] = sParam) then
+  begin
+    Result := StrToInt(sgTemplate.Cells[1, i]);
+    Break;
+  end;
+end;
+
+procedure TfrmMain.SortData;
+var
+  iBookMount:   Integer;
+  iBookFormat:  Integer;
+  iImposition:  Integer;
+  i, j, c:      Integer;
+  sCA1, sCA2:   String;
+  sCB1, sCB2:   String;
+  sCC1, sCC2:   String;
+  sRow1, sRow2: String;
+  sTmp:         String;
+begin
+iBookMount := GetColumn('BookMount');
+iBookFormat := GetColumn('BookFormat');
+iImposition := GetColumn('Imposition');
+for i := 0 to sgOrder.RowCount - 1 do
+  for j := i + 1 to sgOrder.RowCount do
+  begin
+    sCA1 := sgOrder.Cells[iBookFormat - 1, i];
+    sCA1[2] := Chr(100 - Ord(sCA1[2]));
+    sCB1 := sgOrder.Cells[iImposition - 1, i];
+    sCB1[1] := Chr(100 - Ord(sCB1[1]));
+    sCC1 := sgOrder.Cells[0, i];
+    while (Length(sCC1) < 4) do sCC1 := '0' + sCC1;
+    sRow1 := sgOrder.Cells[iBookMount - 1, i] + sCA1 + sCB1 + sCC1;
+
+    sCA2 := sgOrder.Cells[iBookFormat - 1, j];
+    sCA2[2] := Chr(100 - Ord(sCA2[2]));
+    sCB2 := sgOrder.Cells[iImposition - 1, j];
+    sCB2[1] := Chr(100 - Ord(sCB2[1]));
+    sCC2 := sgOrder.Cells[0, j];
+    while (Length(sCC2) < 4) do sCC2 := '0' + sCC2;
+    sRow2 := sgOrder.Cells[iBookMount - 1, j] + sCA2 + sCB2 + sCC2;
+
+    if (CompareText(sRow1, sRow2) > 0) then
+    for c := 0 to sgOrder.ColCount do
+    begin
+      sTmp := sgOrder.Cells[c, i];
+      sgOrder.Cells[c, i] := sgOrder.Cells[c, j];
+      sgOrder.Cells[c, j] := sTmp;
+    end;
+  end;
+end;
+
 function TfrmMain.LoadOrder(sFileName: String): Integer;
 var
   Rows:       Integer;
   Cols:       Integer;
-  i:          Integer;
+  iSrcRow:    Integer;
+  iDstRow:    Integer;
   j:          Integer;
   WorkSheet:  OLEVariant;
-  FData:      OLEVariant;
 begin
 Result := -1;
 if (not RunExcel(False, False)) then Exit;
 try
+  sbMain.Panels[2].Text := 'Загружаю файл ТЗ ...';
+  WriteLog('Загрузка файла ' + sFileName);
   Screen.Cursor := crHourGlass;
-  sgOrder.Enabled := False;
-  for i := 0 to sgOrder.ColCount - 1 do
-    sgOrder.Cols[i].Clear;
+  for j := 0 to sgOrder.ColCount - 1 do
+    sgOrder.Cols[j].Clear;
   MSExcel.Workbooks.Open(sFileName);
   WorkSheet := MSExcel.ActiveWorkbook.ActiveSheet;
   Cols := 2;
-  while not (Unassigned = WorkSheet.Cells[1, Cols].Value) do
+  j := 0;
+  while (j < 10) do
+  begin
+    if (WorkSheet.Cells[1, Cols].Value = Unassigned) then
+      Inc(j)
+    else
+      j := 0;
     Inc(Cols);
-  i := 0;
+  end;
+  j := 0;
   Rows := 2;
-  while (i < 10) do
+  while (j < 10) do
   begin
     if (WorkSheet.Cells[Rows, 1].Value = Unassigned) then
-      Inc(i)
+      Inc(j)
     else
-      i := 0;
+      j := 0;
     Inc(Rows);
   end;
-  Dec(Cols);
-  FData := WorkSheet.UsedRange.Value;
-  sgOrder.ColCount := Cols;
-  sgOrder.RowCount := Rows;
-  for i := 0 to Rows - 1 do begin
-    for j := 0 to Cols - 1 do
-      sgOrder.Cells[j, i] := FData[i + 1, j + 1];
-    Application.ProcessMessages;
+  sgOrder.ColCount := Cols + 1;
+  sgOrder.RowCount := Rows + 1;
+  iDstRow := 0;
+  for iSrcRow := 1 to Rows do begin
+    if IsNumber(WorkSheet.Cells[iSrcRow, 1]) then
+    begin
+      for j := 1 to Cols - 1 do
+      begin
+        sgOrder.Cells[j - 1, iDstRow] := WorkSheet.Cells[iSrcRow, j];
+        Application.ProcessMessages;
+      end;
+      Inc(iDstRow);
+    end;
   end;
+  sgOrder.RowCount := iDstRow - 1;
+  SortData;
   Result := 0;
 finally
+  MSExcel.ActiveWorkbook.Close(SaveChanges:=False);
   ExcelUnit.StopExcel;
+  sbMain.Panels[2].Text := '';
   Screen.Cursor := crDefault;
   frmMain.sgOrder.Enabled := True;
 end;
@@ -337,16 +411,19 @@ var
   sOutFile: WideString;
 begin
 Result := -1;
-sPath := sDup + '_na_list';
-sCfg := edCovers.Text + sPath + '\[_EFI_HotFolder_]\Folder.cfg';
+sOutFile := ExtractFileName(sFile);
+sPath := '';
 if bCover then begin
+  sPath := sDup + '_na_list';
+  sCfg := edCovers.Text + sPath + '\[_EFI_HotFolder_]\Folder.cfg';
   if (not UpdateCfgFile(sCfg, sCopies)) then begin
     WriteLog('Ошибка сохранения настроек для ' + sFile);
     Exit;
   end;
-end;
-sOutFile := ExtractFileName(sFile);
-sOutFile := edCovers.Text + sPath + '\' + sOutFile;
+  sOutFile := edCovers.Text + sPath + '\' + sOutFile;
+end
+else
+  sOutFile := edBlocks.Text + '\' + sOutFile;
 if (not CopyFileW(PWideChar(sFile), PWideChar(sOutFile), True)) then
   WriteLog('Ошибка копирования файла ' + sFile)
 else
@@ -362,61 +439,6 @@ begin
   sbMain.Panels[2].Text := '';
 end;
 end;
-
-{function  TfrmMain.PutCoverToQueue(sFile: WideString; sCopies, sDup: String): Integer;
-var
-  sCfg:     String;
-  sPath:    String;
-  sOutFile: WideString;
-begin
-Result := -1;
-sPath := sDup + '_na_list';
-sCfg := edCovers.Text + sPath + '\[_EFI_HotFolder_]\Folder.cfg';
-if (not UpdateCfgFile(sCfg, sCopies)) then begin
-  WriteLog('Ошибка сохранения настроек для ' + sFile);
-  Exit;
-end;
-sOutFile := ExtractFileName(sFile);
-sOutFile := edCovers.Text + sPath + '\' + sOutFile;
-if (not CopyFileW(PWideChar(sFile), PWideChar(sOutFile), True)) then
-  WriteLog('Ошибка копирования файла ' + sFile)
-else
-begin
-  while FileExists(sOutFile) do
-  begin
-    Application.ProcessMessages;
-    sbMain.Panels[2].Text := 'Ждем принтер...';
-    Sleep(500);
-    if bStopIt then Break;
-  end;
-  Result := 1;
-  sbMain.Panels[2].Text := '';
-end;
-end;
-
-function  TfrmMain.PutBlockToQueue(sFile: WideString; sCopies, sDup: String): Integer;
-var
-  sPath:    String;
-  sOutFile: WideString;
-begin
-Result := -1;
-sOutFile := ExtractFileName(sFile);
-sOutFile := edBlocks.Text + sPath + '\' + sOutFile;
-if (not CopyFileW(PWideChar(sFile), PWideChar(sOutFile), True)) then
-  WriteLog('Ошибка копирования файла ' + sFile)
-else
-begin
-  while FileExists(sOutFile) do
-  begin
-    Application.ProcessMessages;
-    sbMain.Panels[2].Text := 'Ждем принтер...';
-    Sleep(500);
-    if bStopIt then Break;
-  end;
-  Result := 1;
-  sbMain.Panels[2].Text := '';
-end;
-end;}
 
 procedure TfrmMain.btnCoversClick(Sender: TObject);
 label
@@ -479,10 +501,6 @@ begin
           sFile := edCovers.Text + sFile + '_' + sBookFormat +
                   '_' + sPdfFile;
           sNumberOfCopies := GetParam('NumberOfCopies', i);
-          //Если формат <> А5, то пропускаем
-//          if ((Trim(sBookFormat) <> 'A5') and (Trim(sBookFormat) <> 'А5'))then
-//            WriteLog('Пропускаем файл, формат ' + sBookFormat + ': ' + sDir + sPdfFile)
-          //Если копии = 0 то пропускаем
           if (Trim(sNumberOfCopies) = '0') then
             WriteLog('Пропускаем файл, тираж 0: ' + sDir + sPdfFile)
           else begin
@@ -584,13 +602,10 @@ begin
           sBookMount := GetParam('BookMount', i);
           sFile := edBlocks.Text + sFile + '_' + sBookFormat +
                   '_' + sPdfFile;
-          //Если формат <> А5, то пропускаем
           if ((Trim(sBookFormat) <> 'A5') and (Trim(sBookFormat) <> 'А5'))then
             WriteLog('Пропускаем файл, формат ' + sBookFormat + ': ' + sDir + sPdfFile)
-          //Если копии = 0 то пропускаем
           else if (Trim(sNumberOfCopies) = '0') then
             WriteLog('Пропускаем файл, тираж 0: ' + sDir + sPdfFile)
-          //Если скрепка то пропускаем
           else if (Trim(sBookMount) = 'скр') then
             WriteLog('Пропускаем файл, скр: ' + sDir + sPdfFile)
           else begin
