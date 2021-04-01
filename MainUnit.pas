@@ -281,7 +281,7 @@ iBookMount := GetColumn('BookMount');
 iBookFormat := GetColumn('BookFormat');
 iImposition := GetColumn('Imposition');
 for i := 0 to sgOrder.RowCount - 1 do
-  for j := i + 1 to sgOrder.RowCount do
+  for j := i + 1 to sgOrder.RowCount - 1 do
   begin
     sCA1 := sgOrder.Cells[iBookFormat - 1, i];
     sCA1[2] := Chr(100 - Ord(sCA1[2]));
@@ -362,7 +362,7 @@ try
       Inc(iDstRow);
     end;
   end;
-  sgOrder.RowCount := iDstRow - 1;
+  sgOrder.RowCount := iDstRow;
   SortData;
   Result := 0;
 finally

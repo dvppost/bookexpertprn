@@ -2,7 +2,7 @@ object frmMain: TfrmMain
   Left = 342
   Top = 232
   BorderStyle = bsSingle
-  Caption = 'BookExpertPrint v.010421.1'
+  Caption = 'BookExpertPrint v.010421.2'
   ClientHeight = 278
   ClientWidth = 494
   Color = clBtnFace
