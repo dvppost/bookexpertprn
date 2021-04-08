@@ -55,7 +55,8 @@ type
     sbMain: TStatusBar;
     procedure MakeError(sText, sTitle: String);
     function  UpdateCfgFile(sFile, sCopies: String): Boolean;
-    function  PutFileToQueue(sFile: WideString; sCopies, sDup: String; bCover: Boolean): Integer;
+    function  PutFileToQueue(sSrcFile, sDstFile: WideString;
+              sCopies, sDup: String; bCover: Boolean): Integer;
     procedure btnCoversClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: Word;
@@ -218,18 +219,36 @@ begin
 end;
 end;
 
+function ConvertFileDate(ftFile: TFileTime): TDate;
+var
+  stFile: TSystemTime;
+begin
+  FileTimeToSystemTime(ftFile, stFile);
+  Result := EncodeDate(stFile.wYear, stFile.wMonth, stFile.wDay);
+end;
+
 function SearchFile(sFile: WideString): WideString;
 var
   fdData: TWIN32FindDataW;
   hFd:    THandle;
+  dtMax:  TDate;
 begin
 Result := '';
+dtMax := EncodeDate(1970, 1, 1);
 if (sFile[Length(sFile)] = '\') then
   sFile[Length(sFile)] := #0;
 hFd := Windows.FindFirstFileW(PWideChar(sFile), fdData);
-if (hFd <> INVALID_HANDLE_VALUE) then
-  Result := fdData.cFileName;
-if hFd <> 0 then Windows.FindClose(hFd);
+while (hFd <> INVALID_HANDLE_VALUE) do
+begin
+    if (ConvertFileDate(fdData.ftCreationTime) > dtMax) then
+    begin
+      Result := fdData.cFileName;
+      dtMax := ConvertFileDate(fdData.ftCreationTime);
+    end;
+    if not Windows.FindNextFileW(hFd, fdData) then Break;
+end;
+if hFd <> 0 then
+  Windows.FindClose(hFd);
 end;
 
 procedure TfrmMain.MakeError(sText, sTitle: String);
@@ -284,17 +303,21 @@ for i := 0 to sgOrder.RowCount - 1 do
   for j := i + 1 to sgOrder.RowCount - 1 do
   begin
     sCA1 := sgOrder.Cells[iBookFormat - 1, i];
-    sCA1[2] := Chr(100 - Ord(sCA1[2]));
+    if (sCA1 <> '') then
+      sCA1[2] := Chr(100 - Ord(sCA1[2]));
     sCB1 := sgOrder.Cells[iImposition - 1, i];
-    sCB1[1] := Chr(100 - Ord(sCB1[1]));
+    if (sCB1 <> '') then
+      sCB1[1] := Chr(100 - Ord(sCB1[1]));
     sCC1 := sgOrder.Cells[0, i];
     while (Length(sCC1) < 4) do sCC1 := '0' + sCC1;
     sRow1 := sgOrder.Cells[iBookMount - 1, i] + sCA1 + sCB1 + sCC1;
 
     sCA2 := sgOrder.Cells[iBookFormat - 1, j];
-    sCA2[2] := Chr(100 - Ord(sCA2[2]));
+    if (sCA2 <> '') then
+      sCA2[2] := Chr(100 - Ord(sCA2[2]));
     sCB2 := sgOrder.Cells[iImposition - 1, j];
-    sCB2[1] := Chr(100 - Ord(sCB2[1]));
+    if (sCB1 <> '') then
+      sCB2[1] := Chr(100 - Ord(sCB2[1]));
     sCC2 := sgOrder.Cells[0, j];
     while (Length(sCC2) < 4) do sCC2 := '0' + sCC2;
     sRow2 := sgOrder.Cells[iBookMount - 1, j] + sCA2 + sCB2 + sCC2;
@@ -403,32 +426,30 @@ end;
 slCfg.Free;
 end;
 
-function  TfrmMain.PutFileToQueue(sFile: WideString;
+function  TfrmMain.PutFileToQueue(sSrcFile, sDstFile: WideString;
           sCopies, sDup: String; bCover: Boolean): Integer;
 var
   sCfg:     String;
   sPath:    String;
-  sOutFile: WideString;
 begin
 Result := -1;
-sOutFile := ExtractFileName(sFile);
 sPath := '';
 if bCover then begin
   sPath := sDup + '_na_list';
   sCfg := edCovers.Text + sPath + '\[_EFI_HotFolder_]\Folder.cfg';
   if (not UpdateCfgFile(sCfg, sCopies)) then begin
-    WriteLog('Ошибка сохранения настроек для ' + sFile);
+    WriteLog('Ошибка сохранения настроек для ' + sSrcFile);
     Exit;
   end;
-  sOutFile := edCovers.Text + sPath + '\' + sOutFile;
+  sDstFile := edCovers.Text + sPath + '\' + sDstFile;
 end
 else
-  sOutFile := edBlocks.Text + '\' + sOutFile;
-if (not CopyFileW(PWideChar(sFile), PWideChar(sOutFile), True)) then
-  WriteLog('Ошибка копирования файла ' + sFile)
+  sDstFile := edBlocks.Text + '\' + sDstFile;
+if (not CopyFileW(PWideChar(sSrcFile), PWideChar(sDstFile), True)) then
+  WriteLog('Ошибка копирования файла ' + sSrcFile)
 else
 begin
-  while FileExists(sOutFile) do
+  while FileExists(sDstFile) do
   begin
     Application.ProcessMessages;
     sbMain.Panels[2].Text := 'Ждем принтер...';
@@ -498,8 +519,7 @@ begin
         if (sPdfFile <> '') then
         begin
           sBookFormat := GetParam('BookFormat', i);
-          sFile := edCovers.Text + sFile + '_' + sBookFormat +
-                  '_' + sPdfFile;
+          sFile := sFile + '_' + sBookFormat + '_' + sPdfFile;
           sNumberOfCopies := GetParam('NumberOfCopies', i);
           if (Trim(sNumberOfCopies) = '0') then
             WriteLog('Пропускаем файл, тираж 0: ' + sDir + sPdfFile)
@@ -507,8 +527,8 @@ begin
             sImposition := GetParam('Imposition', i);
             WriteLog('Копируем файл, тираж ' + sNumberOfCopies +
                      ': Обложек на лист: ' + sImposition + ':' +
-                     sDir + sPdfFile + ' в ' + sFile);
-            PutFileToQueue(sDir + sPdfFile, sNumberOfCopies, sImposition, True);
+                     sDir + sPdfFile + ' в ' + edCovers.Text + sFile);
+            PutFileToQueue(sDir + sPdfFile, sFile, sNumberOfCopies, sImposition, True);
           end;
         end
         else
@@ -600,8 +620,7 @@ begin
           sImposition := GetParam('Imposition', i);
           sNumberOfCopies := GetParam('NumberOfCopies', i);
           sBookMount := GetParam('BookMount', i);
-          sFile := edBlocks.Text + sFile + '_' + sBookFormat +
-                  '_' + sPdfFile;
+          sFile := sFile + '_' + sBookFormat + '_' + sPdfFile;
           if ((Trim(sBookFormat) <> 'A5') and (Trim(sBookFormat) <> 'А5'))then
             WriteLog('Пропускаем файл, формат ' + sBookFormat + ': ' + sDir + sPdfFile)
           else if (Trim(sNumberOfCopies) = '0') then
@@ -611,8 +630,8 @@ begin
           else begin
             WriteLog('Копируем файл, тираж ' + sNumberOfCopies +
                      ': Обложек на лист: ' + sImposition + ':' +
-                     sDir + sPdfFile + ' в ' + sFile);
-            PutFileToQueue(sDir + sPdfFile, sNumberOfCopies, sImposition, False);
+                     sDir + sPdfFile + ' в ' + edBlocks.Text + sFile);
+            PutFileToQueue(sDir + sPdfFile, sFile, sNumberOfCopies, sImposition, False);
           end;
         end
         else
@@ -625,7 +644,8 @@ begin
       else
       begin
         WriteLog('Нет директории макетов ' + sIsbn);
-        mmErrors.Lines.Add(sIsbn + ' - нет директории макетов');
+        mmErrors.Lines.Add(sIsbn + ', ' + GetParam('Name', i) + ', ' +
+              ' - нет директории макетов');
       end;
       sbMain.Panels[1].Text := 'Выполнено ' + IntToStr(Round(i/sgOrder.RowCount * 100)) + '%';
       sbMain.Panels[0].Text := FormatDateTime('hh:nn:ss ', Now - tmStartTime);
