@@ -429,8 +429,9 @@ end;
 function  TfrmMain.PutFileToQueue(sSrcFile, sDstFile: WideString;
           sCopies, sDup: String; bCover: Boolean): Integer;
 var
-  sCfg:     String;
-  sPath:    String;
+  sCfg:  String;
+  sPath: String;
+  iCnt:  Integer;
 begin
 Result := -1;
 sPath := '';
@@ -445,20 +446,25 @@ if bCover then begin
 end
 else
   sDstFile := edBlocks.Text + '\' + sDstFile;
-if (not CopyFileW(PWideChar(sSrcFile), PWideChar(sDstFile), True)) then
-  WriteLog('Ошибка копирования файла ' + sSrcFile)
-else
-begin
-  while FileExists(sDstFile) do
+iCnt := 1;
+if (not bCover) then iCnt := StrToInt(sCopies);
+while (iCnt > 0) do begin
+  if (not CopyFileW(PWideChar(sSrcFile), PWideChar(sDstFile), True)) then
+    WriteLog('Ошибка копирования файла ' + sSrcFile)
+  else
   begin
-    Application.ProcessMessages;
-    sbMain.Panels[2].Text := 'Ждем принтер...';
-    Sleep(100);
-    if bStopIt then Break;
+    while FileExists(sDstFile) do
+    begin
+      Application.ProcessMessages;
+      sbMain.Panels[2].Text := 'Ждем принтер...';
+      Sleep(100);
+      if bStopIt then Break;
+    end;
+    sbMain.Panels[2].Text := '';
+    Dec(iCnt);
   end;
-  Result := 1;
-  sbMain.Panels[2].Text := '';
 end;
+Result := 1;
 end;
 
 procedure TfrmMain.btnCoversClick(Sender: TObject);
@@ -621,11 +627,11 @@ begin
           sNumberOfCopies := GetParam('NumberOfCopies', i);
           sBookMount := GetParam('BookMount', i);
           sFile := sFile + '_' + sBookFormat + '_' + sPdfFile;
-          if ((Trim(sBookFormat) <> 'A5') and (Trim(sBookFormat) <> 'А5'))then
+          if (Trim(sBookFormat) <> 'A5') then
             WriteLog('Пропускаем файл, формат ' + sBookFormat + ': ' + sDir + sPdfFile)
           else if (Trim(sNumberOfCopies) = '0') then
             WriteLog('Пропускаем файл, тираж 0: ' + sDir + sPdfFile)
-          else if (Trim(sBookMount) = 'скр') then
+          else if (Trim(Copy(sBookMount, 1, 3)) = 'скр') then
             WriteLog('Пропускаем файл, скр: ' + sDir + sPdfFile)
           else begin
             WriteLog('Копируем файл, тираж ' + sNumberOfCopies +
