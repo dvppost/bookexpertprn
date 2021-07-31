@@ -2,7 +2,7 @@ object frmMain: TfrmMain
   Left = 342
   Top = 232
   BorderStyle = bsSingle
-  Caption = 'BookExpertPrint v.100521.1'
+  Caption = 'BookExpertPrint v.240521.1'
   ClientHeight = 278
   ClientWidth = 494
   Color = clBtnFace
@@ -12160,7 +12160,7 @@ object frmMain: TfrmMain
             Width = 137
             Height = 21
             Style = csDropDownList
-            ItemHeight = 0
+            ItemHeight = 13
             TabOrder = 0
             OnChange = cbTemplateChange
             OnDropDown = cbTemplateDropDown

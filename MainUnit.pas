@@ -626,11 +626,12 @@ begin
           sNumberOfCopies := GetParam('NumberOfCopies', i);
           sBookMount := GetParam('BookMount', i);
           sFile := sFile + '_' + sBookFormat + '_' + sPdfFile;
-          if ((Trim(sBookFormat) <> 'A5') and (Trim(sBookFormat) <> 'А5')) then
+          if ((Trim(sBookFormat) <> 'A5') and (Trim(sBookFormat) <> 'А5')) then {русская и англ А}
             WriteLog('Пропускаем файл, формат ' + sBookFormat + ': ' + sDir + sPdfFile)
           else if (Trim(sNumberOfCopies) = '0') then
             WriteLog('Пропускаем файл, тираж 0: ' + sDir + sPdfFile)
-          else if (Trim(Copy(sBookMount, 1, 3)) = 'скр') then
+          else if ((Trim(Copy(sBookMount, 1, 3)) = 'скр') or {русские}
+                   (Trim(Copy(sBookMount, 1, 3)) = 'cкр')) then {первая англ}
             WriteLog('Пропускаем файл, скр: ' + sDir + sPdfFile)
           else begin
             WriteLog('Копируем файл, тираж ' + sNumberOfCopies +
